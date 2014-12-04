@@ -1,0 +1,287 @@
+/******************************************************************************
+File: prog4_shared.c
+
+Purpose: Perform LU Decomposition on a matrix input by the user.
+
+Compiling: gcc -g -Wall -fopenmp -o prog4_shared prog4_shared.c
+
+Usage: prog4_shared [number_of_threads]
+
+Notes: IMPORTANT NOTE, Redirected i/o is very strongly recommended for using
+this program and an example input file should be shipped with this file.
+
+******************************************************************************/
+#include <stdio.h>
+#include <stdlib.h>
+#include <omp.h>
+
+double ** INPUT;
+double **L;
+double **U;
+int * INDEXES;
+double *SCALARS;
+
+unsigned int ROWS;
+unsigned int COLS;
+unsigned long NUM_THREADS;
+
+void printMatrix(unsigned int code);
+unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
+void subtractRow(unsigned int original, unsigned int toChange, double multiplier);
+double* addRow(unsigned int original, unsigned int toChange, double multiplier);
+void makeLMatrix();
+void makeUMatrix();
+void getInput();
+
+int main(int argc, char * argv[])
+{
+	unsigned int i;
+	double start, length;
+	if(argc == 2)
+	{
+		//set the number of threads
+		NUM_THREADS = atol(argv[1]);
+	}
+	else
+	{
+		printf("This requires 1 command argument: the number of threads to use.\n");
+		return 1;
+	}
+
+	//get user input and set up the original states of the matrices
+	getInput();
+
+	start = omp_get_wtime();
+	//make the U matrix
+	makeUMatrix();
+	//make the L matrix
+	makeLMatrix();
+	length = omp_get_wtime() - start;
+	printf("The LU Decomposition took %lf seconds\n", length);
+
+	//print L then print U
+	//printMatrix(1);
+	//printMatrix(2);
+
+	//free all the arrays
+	free(INDEXES);
+	free(SCALARS);
+	for(i = 0; i < ROWS; i++)
+	{
+		free(INPUT[i]);
+	}
+	free(INPUT);
+	for(i = 0; i < ROWS; i++)
+	{
+		free(L[i]);
+	}
+	free(L);
+	for(i = 0; i < ROWS; i++)
+	{
+		free(U[i]);
+	}
+	free(U);
+
+	return 0;
+}
+
+unsigned int getScalarsIndex(unsigned int row1, unsigned int row2)
+{
+	return row1 + row2 + INDEXES[row1];
+}
+/******************************************************************************
+Gets the input of the matrix information from the user (redirect i/o) is
+recommended. L is initialized to the identity matrix of the appropriate
+dimensions. U is initialized to a copy of the INPUT matrix so that the INPUT
+matrix is preserved for output.
+******************************************************************************/
+void getInput()
+{
+	unsigned int i, j;
+
+	printf("Enter number of rows: ");
+	scanf("%u", &ROWS);
+	printf("Enter number of columns: ");
+	scanf("%u", &COLS);
+	
+	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
+	INPUT = malloc(sizeof(double *)*ROWS);
+	L = malloc(sizeof(double *)*ROWS);
+	U = malloc(sizeof(double *)*ROWS);
+	INDEXES = malloc(sizeof(unsigned int *)*ROWS);
+
+	printf("Enter each number in the matrix, separated by an ENTER stroke\n");
+	for(i = 0; i < ROWS; i++)
+	{
+		INPUT[i] = malloc(sizeof(double)*COLS);
+		L[i] = malloc(sizeof(double)*ROWS);
+		U[i] = malloc(sizeof(double)*COLS);
+		for(j = 0; j < COLS; j++)
+		{
+			scanf("%lf", &INPUT[i][j]);
+			U[i][j] = INPUT[i][j];
+			if(i == j)
+			{
+				L[i][j] = 1;
+			}
+			else if(j <= ROWS)
+			{
+				L[i][j] = 0;
+			}
+		}
+		if(i == 0 || i == 1)
+		{
+			INDEXES[i] = -1;
+		}
+		else
+		{
+			INDEXES[i] = INDEXES[i-1] + i - 1;
+			
+		}		
+	}
+}
+
+/******************************************************************************
+Handles the making of the U matrix. The matrix starts as a copy of the INPUT
+matrix and does Guassian Row Elimination up to the point where it becomes a
+Right Upper Matrix. Multipliers for rows are stored in the SCALARS array by the
+scaleURow method for later use by the makeLMatrix() method.
+******************************************************************************/
+void makeUMatrix()
+{
+	unsigned int i, j;
+	double temp;
+
+	for(i = 0; i < ROWS && i < COLS; i++)
+	{
+#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, ROWS, U, SCALARS) schedule(static)
+		for(j = i + 1; j < ROWS; j++)
+		{
+			if(U[j][i] == 0 || U[i][i] == 0)
+			{
+				SCALARS[getScalarsIndex(i,j)] = 0;
+			}
+			else
+			{
+				temp = U[j][i]/U[i][i];
+				SCALARS[getScalarsIndex(i,j)] = temp;
+				subtractRow(i, j, temp);
+				//free(U[j]);
+				//U[j] = newRow;
+			}			
+		}
+	}
+}
+/******************************************************************************
+Handles the making of the L matrix. The matrix starts at the identity matrix 
+and then uses the multipliers stored in SCALARS (starting at the end) to build
+the L matrix based on the process of building the U matrix which should be
+complete when this function is called.
+******************************************************************************/
+void makeLMatrix()
+{
+	int i, j;
+	double *newRow;
+
+	for(i = ROWS > COLS ? COLS - 1 : ROWS - 1; i >= 0; i--)
+	{
+#pragma omp parallel for num_threads(NUM_THREADS) private(j, newRow) shared(SCALARS, L, i) schedule(static)	
+		for(j = i - 1; j >= 0; j--)
+		{
+			if(SCALARS[getScalarsIndex(j,i)] != 0)
+			{
+				newRow = addRow(j, i, SCALARS[getScalarsIndex(j,i)]);
+				#pragma omp critical
+				{
+					free(L[i]);
+					L[i] = newRow;
+				}
+			}
+		}
+	}
+}
+/******************************************************************************
+Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
+3 prints INPUT.
+******************************************************************************/
+void printMatrix(unsigned int code)
+{
+	unsigned int i, j;
+	switch (code)
+	{
+		case 1:
+		{
+			printf("**********L Matrix**********\n");
+			for(i = 0; i < ROWS; i++)
+			{
+				for(j = 0; j < ROWS; j++)
+				{
+					printf("%0.2f    ", L[i][j]);
+				}
+				printf("\n");
+			}
+			break;
+		}
+		case 2:
+		{
+			printf("**********U Matrix**********\n");
+			for(i = 0; i < ROWS; i++)
+			{
+				for(j = 0; j < ROWS; j++)
+				{
+					printf("%0.2f    ", U[i][j]);
+				}
+				printf("\n");
+			}
+			break;
+		}
+		case 3:
+		{
+			printf("**********Input Matrix**********\n");
+			for(i = 0; i < ROWS; i++)
+			{
+				for(j = 0; j < ROWS; j++)
+				{
+					printf("%0.2f    ", INPUT[i][j]);
+				}
+				printf("\n");
+			}
+			break;
+		}
+	}
+}
+
+/******************************************************************************
+This function adds one row to anotherwhile scaling the row that
+corresponds to the "oroginal" indexer. It returns a new row rather than
+assigning to the original row in an effort to shorten critical sections.
+******************************************************************************/
+double* addRow(unsigned int original, unsigned int toChange, double multiplier)
+{
+	unsigned int i;
+	double * toReturn = malloc(sizeof(double)*COLS);
+
+	for(i = 0; i < COLS; i++)
+	{
+		toReturn[i] = L[toChange][i] + L[original][i] * multiplier;
+	}
+
+	return toReturn;
+}
+
+/******************************************************************************
+This function subtracts one row from another while scaling the row that
+corresponds to the "oroginal" indexer. It returns a new row rather than
+assigning to the original row in an effort to shorten critical sections.
+******************************************************************************/
+void subtractRow(unsigned int original, unsigned int toChange, double multiplier)
+{
+	unsigned int i;
+	//double * toReturn = malloc(sizeof(double)*COLS);
+	for(i = 0; i < COLS; i++)
+	{
+		U[toChange][i] = U[toChange][i] - U[original][i] * multiplier;
+	}
+
+	//return toReturn;
+}
