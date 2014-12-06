@@ -14,8 +14,9 @@ this program and an example input file should be shipped with this file.
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
+#include <time.h>
 
-double ** INPUT;
+double **INPUT;//[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
 double **L;
 double **U;
 int * INDEXES;
@@ -27,11 +28,11 @@ unsigned long NUM_THREADS;
 
 void printMatrix(unsigned int code);
 unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
-void subtractRow(unsigned int original, unsigned int toChange, double multiplier);
-double* addRow(unsigned int original, unsigned int toChange, double multiplier);
+void subtractRow(double *original, double* toChange, double multiplier);
+double* addRow(double *original, double* toChange, double multiplier);
 void makeLMatrix();
 void makeUMatrix();
-void getInput();
+void makeInput();
 
 int main(int argc, char * argv[])
 {
@@ -49,7 +50,7 @@ int main(int argc, char * argv[])
 	}
 
 	//get user input and set up the original states of the matrices
-	getInput();
+	makeInput();
 
 	start = omp_get_wtime();
 	//make the U matrix
@@ -59,9 +60,10 @@ int main(int argc, char * argv[])
 	length = omp_get_wtime() - start;
 	printf("The LU Decomposition took %lf seconds\n", length);
 
+	printMatrix(3);
 	//print L then print U
-	//printMatrix(1);
-	//printMatrix(2);
+	printMatrix(1);
+	printMatrix(2);
 
 	//free all the arrays
 	free(INDEXES);
@@ -95,7 +97,7 @@ recommended. L is initialized to the identity matrix of the appropriate
 dimensions. U is initialized to a copy of the INPUT matrix so that the INPUT
 matrix is preserved for output.
 ******************************************************************************/
-void getInput()
+void makeInput()
 {
 	unsigned int i, j;
 
@@ -104,13 +106,13 @@ void getInput()
 	printf("Enter number of columns: ");
 	scanf("%u", &COLS);
 	
+	srand(time(NULL));
 	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
 	INPUT = malloc(sizeof(double *)*ROWS);
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
 	INDEXES = malloc(sizeof(unsigned int *)*ROWS);
 
-	printf("Enter each number in the matrix, separated by an ENTER stroke\n");
 	for(i = 0; i < ROWS; i++)
 	{
 		INPUT[i] = malloc(sizeof(double)*COLS);
@@ -118,7 +120,7 @@ void getInput()
 		U[i] = malloc(sizeof(double)*COLS);
 		for(j = 0; j < COLS; j++)
 		{
-			scanf("%lf", &INPUT[i][j]);
+			INPUT[i][j] = rand() % 20 + 1;
 			U[i][j] = INPUT[i][j];
 			if(i == j)
 			{
@@ -151,23 +153,25 @@ void makeUMatrix()
 {
 	unsigned int i, j;
 	double temp;
+	double *rowI;
+	double *rowJ;
 
 	for(i = 0; i < ROWS && i < COLS; i++)
 	{
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, ROWS, U, SCALARS) schedule(static)
+		rowI = U[i];
+#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
 		{
-			if(U[j][i] == 0 || U[i][i] == 0)
+			rowJ = U[j];
+			if(rowJ[i] == 0 || rowI[i] == 0)
 			{
 				SCALARS[getScalarsIndex(i,j)] = 0;
 			}
 			else
 			{
-				temp = U[j][i]/U[i][i];
+				temp = rowJ[i]/rowI[i];
 				SCALARS[getScalarsIndex(i,j)] = temp;
-				subtractRow(i, j, temp);
-				//free(U[j]);
-				//U[j] = newRow;
+				subtractRow(rowI, rowJ, temp);
 			}			
 		}
 	}
@@ -190,7 +194,7 @@ void makeLMatrix()
 		{
 			if(SCALARS[getScalarsIndex(j,i)] != 0)
 			{
-				newRow = addRow(j, i, SCALARS[getScalarsIndex(j,i)]);
+				newRow = addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
 				#pragma omp critical
 				{
 					free(L[i]);
@@ -256,14 +260,14 @@ This function adds one row to anotherwhile scaling the row that
 corresponds to the "oroginal" indexer. It returns a new row rather than
 assigning to the original row in an effort to shorten critical sections.
 ******************************************************************************/
-double* addRow(unsigned int original, unsigned int toChange, double multiplier)
+double* addRow(double* original, double* toChange, double multiplier)
 {
 	unsigned int i;
 	double * toReturn = malloc(sizeof(double)*COLS);
 
 	for(i = 0; i < COLS; i++)
 	{
-		toReturn[i] = L[toChange][i] + L[original][i] * multiplier;
+		toReturn[i] = toChange[i] + original[i] * multiplier;
 	}
 
 	return toReturn;
@@ -274,13 +278,13 @@ This function subtracts one row from another while scaling the row that
 corresponds to the "oroginal" indexer. It returns a new row rather than
 assigning to the original row in an effort to shorten critical sections.
 ******************************************************************************/
-void subtractRow(unsigned int original, unsigned int toChange, double multiplier)
+void subtractRow(double* original, double* toChange, double multiplier)
 {
 	unsigned int i;
-	//double * toReturn = malloc(sizeof(double)*COLS);
+
 	for(i = 0; i < COLS; i++)
 	{
-		U[toChange][i] = U[toChange][i] - U[original][i] * multiplier;
+		toChange[i] = toChange[i] - original[i] * multiplier;
 	}
 
 	//return toReturn;
