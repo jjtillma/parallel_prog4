@@ -204,7 +204,7 @@ void makeLMatrix()
 
 	double *row;
 
-#pragma omp parallel for private(i, j, row) shared(SCALARS, L, ROWS) schedule(static)
+#pragma omp parallel for num_threads(NUM_THREADS) private(i, j, row) shared(SCALARS, L, ROWS) schedule(static)
 	for(i = 1; i < ROWS; i++)
 	{
 		row = L[i];
