@@ -17,7 +17,7 @@ this program and an example input file should be shipped with this file.
 #include <time.h>
 
 #ifdef DEBUG
-double INPUT[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
+double INPUT[3][3] = {{4,2,2},{1,0,8},{2,4,4}};
 unsigned int ROWS = 3;
 #else
 double **INPUT;
@@ -208,6 +208,7 @@ void makeLMatrix()
 		{
 			if(SCALARS[getScalarsIndex(j,i)] != 0)
 			{
+				printf("%d, %d, %d, %lf\n", j, i, getScalarsIndex(j,i), SCALARS[getScalarsIndex(j,i)]);
 				addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
 			}
 		}
