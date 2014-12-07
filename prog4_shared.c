@@ -202,15 +202,15 @@ void makeLMatrix()
 	int i, j;
 	double *newRow;
 
-	for(i = ROWS - 1; i > 0; i--)
+	for(i = 1; i > 0; i--)
 	{
-		for(j = i-1; j >= 0; j--)
+		for(j = 0; j >= 0; j--)
 		{
-			if(SCALARS[getScalarsIndex(j,i)] != 0)
-			{
-				printf("%d, %d, %d, %lf\n", j, i, getScalarsIndex(j,i), SCALARS[getScalarsIndex(j,i)]);
-				addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
-			}
+			L[i][j] = SCALARS[i+j-1];
+			//if(SCALARS[getScalarsIndex(j,i)] != 0)
+			//{
+			//	addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
+			//}
 		}
 	}
 }
