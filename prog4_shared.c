@@ -137,9 +137,6 @@ void makeInput()
 			INPUT[i][j] = rand() % 20 + 1;
 			#endif
 			U[i][j] = INPUT[i][j];
-		}
-		for(j = 0; j < ROWS; j++)
-		{
 			if(i == j)
 			{
 				L[i][j] = 1;
