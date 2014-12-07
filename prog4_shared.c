@@ -1,14 +1,17 @@
 /******************************************************************************
 File: prog4_shared.c
 
-Purpose: Perform LU Decomposition on a matrix input by the user.
+Purpose: Perform LU Decomposition on a matrix randomly generated with a set
+number of rows. The matrix will be a square matrix because a square matrix is
+required to actually use the LU Decomposition for many of its applications.
 
-Compiling: gcc -g -Wall -fopenmp -o prog4_shared prog4_shared.c
+Compiling: gcc -O -g -Wall -fopenmp -o prog4_shared prog4_shared.c [-DDEBUG]
 
 Usage: prog4_shared [number_of_threads]
 
-Notes: IMPORTANT NOTE, Redirected i/o is very strongly recommended for using
-this program and an example input file should be shipped with this file.
+Notes: Adding the -DDEBUG will use a static matrix of a set size that outputs
+INPUT, L, U, and the result of L*U for debugging so that it can be seen that
+the algorithm gets a proper result.
 
 ******************************************************************************/
 #include <stdio.h>
@@ -34,7 +37,6 @@ unsigned long NUM_THREADS;
 void printMatrix(unsigned int code);
 unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
 void subtractRow(double *original, double* toChange, double multiplier);
-void addRow(double *original, double* toChange, double multiplier);
 void makeLMatrix();
 void makeUMatrix();
 void makeInput();
@@ -194,25 +196,27 @@ void makeUMatrix()
 /******************************************************************************
 Handles the making of the L matrix. The matrix starts at the identity matrix 
 and then uses the multipliers stored in SCALARS (starting at the end) to build
-the L matrix based on the process of building the U matrix which should be
-complete when this function is called.
+the L matrix based on row-column indexing.
 ******************************************************************************/
 void makeLMatrix()
 {
 	int i, j;
 
-#pragma omp parallel for private(i, j) shared(SCALARS, L, ROWS)
+	double *row;
+
+#pragma omp parallel for private(i, j, row) shared(SCALARS, L, ROWS) schedule(static)
 	for(i = 1; i < ROWS; i++)
 	{
+		row = L[i];
 		for(j = 0; j < i; j++)
 		{
-			L[i][j] = SCALARS[getScalarsIndex(j,i)];
+			row[j] = SCALARS[getScalarsIndex(j,i)];
 		}
 	}
 }
 /******************************************************************************
 Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
-3 prints INPUT.
+3 prints INPUT, 4 prints a Multiplied matrix.
 ******************************************************************************/
 void printMatrix(unsigned int code)
 {
@@ -277,22 +281,6 @@ void printMatrix(unsigned int code)
 			}
 			break;
 		}
-	}
-}
-
-/******************************************************************************
-This function adds one row to anotherwhile scaling the row that
-corresponds to the "oroginal" indexer. It returns a new row rather than
-assigning to the original row in an effort to shorten critical sections.
-******************************************************************************/
-void addRow(double* original, double* toChange, double multiplier)
-{
-	unsigned int i;
-
-	#pragma omp parallel for private(i), shared(ROWS, original, toChange, multiplier)
-	for(i = 0; i < ROWS; i++)
-	{
-		toChange[i] = toChange[i] + original[i] * multiplier;
 	}
 }
 
