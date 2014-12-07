@@ -34,7 +34,7 @@ unsigned long NUM_THREADS;
 void printMatrix(unsigned int code);
 unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
 void subtractRow(double *original, double* toChange, double multiplier);
-double* addRow(double *original, double* toChange, double multiplier);
+void addRow(double *original, double* toChange, double multiplier);
 void makeLMatrix();
 void makeUMatrix();
 void makeInput();
@@ -207,22 +207,12 @@ void makeLMatrix()
 
 	for(i = ROWS - 1; i > 0; i--)
 	{
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, newRow) shared(SCALARS, L, i) schedule(static)	
 		for(j = i-1; j >= 0; j--)
 		{
-			
 			if(SCALARS[getScalarsIndex(j,i)] != 0)
 			{
-				
-				newRow = addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
-				#pragma omp critical
-				{
-					free(L[i]);
-					L[i] = newRow;
-				}
-			printf("%d\n", getScalarsIndex(j,i));
+				addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
 			}
-			
 		}
 	}
 }
@@ -301,17 +291,15 @@ This function adds one row to anotherwhile scaling the row that
 corresponds to the "oroginal" indexer. It returns a new row rather than
 assigning to the original row in an effort to shorten critical sections.
 ******************************************************************************/
-double* addRow(double* original, double* toChange, double multiplier)
+void addRow(double* original, double* toChange, double multiplier)
 {
 	unsigned int i;
-	double * toReturn = malloc(sizeof(double)*ROWS);
 
+	#pragma omp parallel for private(i), shared(ROWS, original, toChange, multiplier)
 	for(i = 0; i < ROWS; i++)
 	{
-		toReturn[i] = toChange[i] + original[i] * multiplier;
+		toChange[i] = toChange[i] + original[i] * multiplier;
 	}
-
-	return toReturn;
 }
 
 /******************************************************************************
@@ -327,6 +315,4 @@ void subtractRow(double* original, double* toChange, double multiplier)
 	{
 		toChange[i] = toChange[i] - original[i] * multiplier;
 	}
-
-	//return toReturn;
 }
