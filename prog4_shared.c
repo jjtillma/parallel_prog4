@@ -65,6 +65,8 @@ int main(int argc, char * argv[])
 	printMatrix(1);
 	printMatrix(2);
 
+	printMatrix(4);
+
 	//free all the arrays
 	free(INDEXES);
 	free(SCALARS);
@@ -105,7 +107,7 @@ void makeInput()
 	scanf("%u", &ROWS);
 	printf("Enter number of columns: ");
 	scanf("%u", &COLS);
-	
+
 	srand(time(NULL));
 	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
 	INPUT = malloc(sizeof(double *)*ROWS);
@@ -122,6 +124,9 @@ void makeInput()
 		{
 			INPUT[i][j] = rand() % 20 + 1;
 			U[i][j] = INPUT[i][j];
+		}
+		for(j = 0; j < ROWS; j++)
+		{
 			if(i == j)
 			{
 				L[i][j] = 1;
@@ -155,8 +160,9 @@ void makeUMatrix()
 	double temp;
 	double *rowI;
 	double *rowJ;
+	unsigned int end = ROWS < COLS ? ROWS: COLS;
 
-	for(i = 0; i < ROWS && i < COLS; i++)
+	for(i = 0; i < end; i++)
 	{
 		rowI = U[i];
 #pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
@@ -187,11 +193,12 @@ void makeLMatrix()
 	int i, j;
 	double *newRow;
 
-	for(i = ROWS > COLS ? COLS - 1 : ROWS - 1; i >= 0; i--)
+	for(i = ROWS - 1; i >= 0; i--)
 	{
 #pragma omp parallel for num_threads(NUM_THREADS) private(j, newRow) shared(SCALARS, L, i) schedule(static)	
 		for(j = i - 1; j >= 0; j--)
 		{
+			printf("%d\n", getScalarsIndex(j,i));
 			if(SCALARS[getScalarsIndex(j,i)] != 0)
 			{
 				newRow = addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
@@ -210,7 +217,7 @@ Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
 ******************************************************************************/
 void printMatrix(unsigned int code)
 {
-	unsigned int i, j;
+	unsigned int i, j, k;
 	switch (code)
 	{
 		case 1:
@@ -231,9 +238,9 @@ void printMatrix(unsigned int code)
 			printf("**********U Matrix**********\n");
 			for(i = 0; i < ROWS; i++)
 			{
-				for(j = 0; j < ROWS; j++)
+				for(j = 0; j < COLS; j++)
 				{
-					printf("%0.2f    ", U[i][j]);
+					printf("%0.2lf    ", U[i][j]);
 				}
 				printf("\n");
 			}
@@ -244,9 +251,28 @@ void printMatrix(unsigned int code)
 			printf("**********Input Matrix**********\n");
 			for(i = 0; i < ROWS; i++)
 			{
-				for(j = 0; j < ROWS; j++)
+				for(j = 0; j < COLS; j++)
 				{
-					printf("%0.2f    ", INPUT[i][j]);
+					printf("%0.2lf    ", INPUT[i][j]);
+				}
+				printf("\n");
+			}
+			break;
+		}
+		case 4:
+		{
+			double sum = 0;
+			printf("**********Multiply Matrix**********\n");
+			for(k = 0; k < ROWS; k++)
+			{
+				for(i = 0; i < COLS; i++)
+				{
+					for(j = 0; j < ROWS; j++)
+					{
+						sum = sum + L[k][j] * U[j][i];
+					}
+					printf("%0.2lf    ", sum);
+					sum = 0;
 				}
 				printf("\n");
 			}
@@ -263,9 +289,9 @@ assigning to the original row in an effort to shorten critical sections.
 double* addRow(double* original, double* toChange, double multiplier)
 {
 	unsigned int i;
-	double * toReturn = malloc(sizeof(double)*COLS);
+	double * toReturn = malloc(sizeof(double)*ROWS);
 
-	for(i = 0; i < COLS; i++)
+	for(i = 0; i < ROWS; i++)
 	{
 		toReturn[i] = toChange[i] + original[i] * multiplier;
 	}
