@@ -16,14 +16,19 @@ this program and an example input file should be shipped with this file.
 #include <omp.h>
 #include <time.h>
 
-double **INPUT;//[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
+#ifdef DEBUG
+double INPUT[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
+unsigned int ROWS = 3;
+#else
+double **INPUT;
+unsigned int ROWS;
+#endif
+
 double **L;
 double **U;
 int * INDEXES;
 double *SCALARS;
 
-unsigned int ROWS;
-unsigned int COLS;
 unsigned long NUM_THREADS;
 
 void printMatrix(unsigned int code);
@@ -60,21 +65,24 @@ int main(int argc, char * argv[])
 	length = omp_get_wtime() - start;
 	printf("The LU Decomposition took %lf seconds\n", length);
 
+	//print the input, then L, then U, then the result of multiplication
+	#ifdef DEBUG
 	printMatrix(3);
-	//print L then print U
 	printMatrix(1);
 	printMatrix(2);
-
 	printMatrix(4);
+	#endif
 
 	//free all the arrays
-	free(INDEXES);
 	free(SCALARS);
+	#ifndef DEBUG
+	free(INDEXES);
 	for(i = 0; i < ROWS; i++)
 	{
 		free(INPUT[i]);
 	}
 	free(INPUT);
+	#endif
 	for(i = 0; i < ROWS; i++)
 	{
 		free(L[i]);
@@ -103,26 +111,31 @@ void makeInput()
 {
 	unsigned int i, j;
 
-	printf("Enter number of rows: ");
+	#ifndef DEBUG
+	printf("Enter number of rows for the square matrix: ");
 	scanf("%u", &ROWS);
-	printf("Enter number of columns: ");
-	scanf("%u", &COLS);
-
 	srand(time(NULL));
-	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
 	INPUT = malloc(sizeof(double *)*ROWS);
+	#endif
+	
+	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
+
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
 	INDEXES = malloc(sizeof(unsigned int *)*ROWS);
 
 	for(i = 0; i < ROWS; i++)
 	{
-		INPUT[i] = malloc(sizeof(double)*COLS);
+		#ifndef DEBUG
+		INPUT[i] = malloc(sizeof(double)*ROWS);
+		#endif
 		L[i] = malloc(sizeof(double)*ROWS);
-		U[i] = malloc(sizeof(double)*COLS);
-		for(j = 0; j < COLS; j++)
+		U[i] = malloc(sizeof(double)*ROWS);
+		for(j = 0; j < ROWS; j++)
 		{
+			#ifndef DEBUG
 			INPUT[i][j] = rand() % 20 + 1;
+			#endif
 			U[i][j] = INPUT[i][j];
 		}
 		for(j = 0; j < ROWS; j++)
@@ -160,9 +173,8 @@ void makeUMatrix()
 	double temp;
 	double *rowI;
 	double *rowJ;
-	unsigned int end = ROWS < COLS ? ROWS: COLS;
 
-	for(i = 0; i < end; i++)
+	for(i = 0; i < ROWS; i++)
 	{
 		rowI = U[i];
 #pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
@@ -193,21 +205,24 @@ void makeLMatrix()
 	int i, j;
 	double *newRow;
 
-	for(i = ROWS - 1; i >= 0; i--)
+	for(i = ROWS - 1; i > 0; i--)
 	{
 #pragma omp parallel for num_threads(NUM_THREADS) private(j, newRow) shared(SCALARS, L, i) schedule(static)	
-		for(j = i - 1; j >= 0; j--)
+		for(j = i-1; j >= 0; j--)
 		{
-			printf("%d\n", getScalarsIndex(j,i));
+			
 			if(SCALARS[getScalarsIndex(j,i)] != 0)
 			{
+				
 				newRow = addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
 				#pragma omp critical
 				{
 					free(L[i]);
 					L[i] = newRow;
 				}
+			printf("%d\n", getScalarsIndex(j,i));
 			}
+			
 		}
 	}
 }
@@ -238,7 +253,7 @@ void printMatrix(unsigned int code)
 			printf("**********U Matrix**********\n");
 			for(i = 0; i < ROWS; i++)
 			{
-				for(j = 0; j < COLS; j++)
+				for(j = 0; j < ROWS; j++)
 				{
 					printf("%0.2lf    ", U[i][j]);
 				}
@@ -251,7 +266,7 @@ void printMatrix(unsigned int code)
 			printf("**********Input Matrix**********\n");
 			for(i = 0; i < ROWS; i++)
 			{
-				for(j = 0; j < COLS; j++)
+				for(j = 0; j < ROWS; j++)
 				{
 					printf("%0.2lf    ", INPUT[i][j]);
 				}
@@ -265,7 +280,7 @@ void printMatrix(unsigned int code)
 			printf("**********Multiply Matrix**********\n");
 			for(k = 0; k < ROWS; k++)
 			{
-				for(i = 0; i < COLS; i++)
+				for(i = 0; i < ROWS; i++)
 				{
 					for(j = 0; j < ROWS; j++)
 					{
@@ -308,7 +323,7 @@ void subtractRow(double* original, double* toChange, double multiplier)
 {
 	unsigned int i;
 
-	for(i = 0; i < COLS; i++)
+	for(i = 0; i < ROWS; i++)
 	{
 		toChange[i] = toChange[i] - original[i] * multiplier;
 	}
