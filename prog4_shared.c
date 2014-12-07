@@ -200,17 +200,13 @@ complete when this function is called.
 void makeLMatrix()
 {
 	int i, j;
-	double *newRow;
 
-	for(i = 1; i > 0; i--)
+#pragma omp parallel for private(i, j) shared(SCALARS, L, ROWS)
+	for(i = 1; i < ROWS; i++)
 	{
-		for(j = 0; j >= 0; j--)
+		for(j = 0; j < i; j++)
 		{
-			L[i][j] = SCALARS[i+j-1];
-			//if(SCALARS[getScalarsIndex(j,i)] != 0)
-			//{
-			//	addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
-			//}
+			L[i][j] = SCALARS[getScalarsIndex(j,i)];
 		}
 	}
 }
