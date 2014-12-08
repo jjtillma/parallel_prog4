@@ -20,7 +20,7 @@ the algorithm gets a proper result.
 #include <time.h>
 
 #ifdef DEBUG
-double INPUT[3][3] = {{4,2,2},{1,0,8},{2,4,4}};
+double INPUT[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
 unsigned int ROWS = 3;
 #else
 double **INPUT;
@@ -37,7 +37,6 @@ unsigned long NUM_THREADS;
 void printMatrix(unsigned int code);
 unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
 void subtractRow(double *original, double* toChange, double multiplier);
-void makeLMatrix();
 void makeUMatrix();
 void makeInput();
 
@@ -62,8 +61,6 @@ int main(int argc, char * argv[])
 	start = omp_get_wtime();
 	//make the U matrix
 	makeUMatrix();
-	//make the L matrix
-	makeLMatrix();
 	length = omp_get_wtime() - start;
 	printf("The LU Decomposition took %lf seconds\n", length);
 
@@ -169,14 +166,14 @@ scaleURow method for later use by the makeLMatrix() method.
 void makeUMatrix()
 {
 	unsigned int i, j;
-	double temp;
+	double tempScalar;
 	double *rowI;
 	double *rowJ;
 
 	for(i = 0; i < ROWS; i++)
 	{
 		rowI = U[i];
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
+#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
 		{
 			rowJ = U[j];
@@ -186,31 +183,10 @@ void makeUMatrix()
 			}
 			else
 			{
-				temp = rowJ[i]/rowI[i];
-				SCALARS[getScalarsIndex(i,j)] = temp;
-				subtractRow(rowI, rowJ, temp);
+				tempScalar = rowJ[i]/rowI[i];
+				L[j][i] = tempScalar;
+				subtractRow(rowI, rowJ, tempScalar);
 			}			
-		}
-	}
-}
-/******************************************************************************
-Handles the making of the L matrix. The matrix starts at the identity matrix 
-and then uses the multipliers stored in SCALARS (starting at the end) to build
-the L matrix based on row-column indexing.
-******************************************************************************/
-void makeLMatrix()
-{
-	int i, j;
-
-	double *row;
-
-#pragma omp parallel for num_threads(NUM_THREADS) private(i, j, row) shared(SCALARS, L, ROWS) schedule(static)
-	for(i = 1; i < ROWS; i++)
-	{
-		row = L[i];
-		for(j = 0; j < i; j++)
-		{
-			row[j] = SCALARS[getScalarsIndex(j,i)];
 		}
 	}
 }
