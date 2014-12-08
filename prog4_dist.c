@@ -17,12 +17,9 @@ this program and an example input file should be shipped with this file.
 #include <time.h>
 
 void printMatrix(unsigned int code, unsigned int ROWS, double *arr);
-unsigned int getScalarsIndex(unsigned int row1, unsigned int row2, double *INPUT);
-double* addRow(double *original, double* toChange, double multiplier, unsigned int SIZE);
 void subtractRow(double *original, double* toChange, double multiplier, unsigned int SIZE);
-void makeLMatrix();
-void makeUMatrix();
 void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, int *INDEXES, double *SCALARS);
+void makeMatrices(unsigned int size, double *U, double *L, unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank);
 
 int main(int argc, char * argv[])
 {
@@ -35,7 +32,11 @@ int main(int argc, char * argv[])
 	int		comm_sz;
 	int		my_rank;
 	double 		t_start, t_length;
-	
+	unsigned int	start, end;
+	unsigned int 	block;
+	double 		*localU;
+	double		*localL;	
+
 	MPI_Init(NULL, NULL);
 
 	//get comm size and rank
@@ -47,31 +48,62 @@ int main(int argc, char * argv[])
 	{
 		printf("Enter number of rows for the square matrix: ");
 		scanf("%u", &size);
+	
+		if(size % comm_sz != 0)
+		{
+			printf("Number of processes must divide number of rows.\n");
+			size = -1;
+		}
+		else
+		{
+			//matrices as contiguous memory
+			input = malloc(sizeof(double) * size * size);
+			L = malloc(sizeof(double) * size * size);
+			U = malloc(sizeof(double) * size * size);
+			indexes = malloc(sizeof(unsigned int) * size);
+			scalars = malloc(sizeof(double)*(size-1)*(size)/2);
 		
-		//matrices as contiguous memory
-		input = malloc(sizeof(double) * size * size);
-		L = malloc(sizeof(double) * size * size);
-		U = malloc(sizeof(double) * size * size);
-		indexes = malloc(sizeof(unsigned int) * size);
-		scalars = malloc(sizeof(double)*(size-1)*(size)/2);
-		
-		makeInput(size, input, L, U, indexes, scalars);
-		t_start = MPI_Wtime();
+			makeInput(size, input, L, U, indexes, scalars);
+			t_start = MPI_Wtime();
+		}
 	}
 
-	//make the U matrix
-	//makeUMatrix();
-	//make the L matrix
-	//makeLMatrix();
+	//send size to all processes
+	MPI_Bcast(&size, 1, MPI_UNSIGNED, 0, MPI_COMM_WORLD);
+	if (size == -1)
+	{
+		MPI_Finalize();
+		return 0;
+	}
+	//get start and end rows
+	block = size / comm_sz;
+	start = my_rank * size / comm_sz;
+	end = (my_rank+1) * size / comm_sz - 1;
+
+	//allocate memory for local rows
+	localU = malloc(sizeof(double) * block * size);
+	localL = malloc(sizeof(double) * block * size);
+
+	//distribute matrix
+	MPI_Scatter(input, block*size, MPI_DOUBLE, localU, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatter(L, block*size, MPI_DOUBLE, localL, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+	//make the L and U matrices
+	makeMatrices(size, localU, localL, block, start, end, my_rank);
 	
+	//gather results
+	MPI_Gather(localU, block*size, MPI_DOUBLE,  U, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
+	MPI_Gather(localL, block*size, MPI_DOUBLE,  L, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
+	
+	//print results
 	if(my_rank == 0)
 	{
 		t_length = MPI_Wtime() - t_start;
 		printf("The LU Decomposition took %lf seconds\n", t_length);
+		printMatrix(3, size, input);
+		printMatrix(1, size, L);
+		printMatrix(2, size, U);
 	}
-
-	//print the input, then L, then U, then the result of multiplication
-	printMatrix(3, size, input);
 	
 	//free all the arrays
 	if(my_rank == 0)
@@ -82,15 +114,13 @@ int main(int argc, char * argv[])
 		free(L);
 		free(U);
 	}
+	free(localU);
+	free(localL);
 
 	MPI_Finalize();
 	return 0;
 }
 
-unsigned int getScalarsIndex(unsigned int row1, unsigned int row2, double *data)
-{
-	return row1 + row2 + data[row1];
-}
 /******************************************************************************
 Gets the input of the matrix information from the user (redirect i/o) is
 recommended. L is initialized to the identity matrix of the appropriate
@@ -133,65 +163,48 @@ matrix and does Guassian Row Elimination up to the point where it becomes a
 Right Upper Matrix. Multipliers for rows are stored in the SCALARS array by the
 scaleURow method for later use by the makeLMatrix() method.
 ******************************************************************************/
-/*void makeUMatrix()
+void makeMatrices(unsigned int size, double *U, double *L, unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank)
 {
 	unsigned int i, j;
-	double temp;
+	int owner;
+	double scalar;
 	double *rowI;
 	double *rowJ;
 
-	for(i = 0; i < ROWS; i++)
-	{
-		rowI = U[i];
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
-		for(j = i + 1; j < ROWS; j++)
-		{
-			rowJ = U[j];
-			if(rowJ[i] == 0 || rowI[i] == 0)
-			{
-				SCALARS[getScalarsIndex(i,j)] = 0;
-			}
-			else
-			{
-				temp = rowJ[i]/rowI[i];
-				SCALARS[getScalarsIndex(i,j)] = temp;
-				subtractRow(rowI, rowJ, temp);
-			}			
-		}
-	}
-}*/
-/******************************************************************************
-Handles the making of the L matrix. The matrix starts at the identity matrix 
-and then uses the multipliers stored in SCALARS (starting at the end) to build
-the L matrix based on the process of building the U matrix which should be
-complete when this function is called.
-******************************************************************************/
-/*void makeLMatrix()
-{
-	int i, j;
-	double *newRow;
+	//allocate rows
+	rowI = malloc(size * sizeof(double));
 
-	for(i = ROWS - 1; i > 0; i--)
+	for(i = 0; i < size; i++)
 	{
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, newRow) shared(SCALARS, L, i) schedule(static)	
-		for(j = i-1; j >= 0; j--)
+		//send necessary row to all processes
+		owner = i / block;
+		if(my_rank == owner)
 		{
-			
-			if(SCALARS[getScalarsIndex(j,i)] != 0)
+			for (j=0; j < size; j++)
+				rowI[j] = U[(i-start)*size+j];
+		}	
+		MPI_Bcast(rowI, size, MPI_DOUBLE, owner, MPI_COMM_WORLD);
+
+		for(j = 0; j < block; j++)
+		{
+			if(j+start > i)
 			{
-				
-				newRow = addRow(L[j], L[i], SCALARS[getScalarsIndex(j,i)]);
-				#pragma omp critical
+				rowJ = &U[j*size];
+				if(rowJ[i] == 0 || rowI[i] == 0)
 				{
-					free(L[i]);
-					L[i] = newRow;
+					L[j*size+i] = 0;
 				}
-			printf("%d\n", getScalarsIndex(j,i));
-			}
-			
+				else
+				{
+					scalar = rowJ[i] / rowI[i];
+					L[j*size+i] = scalar;
+					subtractRow(rowI, rowJ, scalar, size);
+				}	
+			}		
 		}
 	}
-}*/
+}
+
 /******************************************************************************
 Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
 3 prints INPUT.
@@ -246,24 +259,6 @@ void printMatrix(unsigned int code, unsigned int ROWS, double *arr)
 		printf("\n");
 	}
 	return;
-}
-
-/******************************************************************************
-This function adds one row to anotherwhile scaling the row that
-corresponds to the "oroginal" indexer. It returns a new row rather than
-assigning to the original row in an effort to shorten critical sections.
-******************************************************************************/
-double* addRow(double* original, double* toChange, double multiplier, unsigned int SIZE)
-{
-	unsigned int i;
-	double * toReturn = malloc(sizeof(double)*SIZE);
-
-	for(i = 0; i < SIZE; i++)
-	{
-		toReturn[i] = toChange[i] + original[i] * multiplier;
-	}
-
-	return toReturn;
 }
 
 /******************************************************************************
