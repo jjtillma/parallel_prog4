@@ -30,7 +30,6 @@ unsigned int ROWS;
 double **L;
 double **U;
 int * INDEXES;
-double *SCALARS;
 
 unsigned long NUM_THREADS;
 
@@ -72,8 +71,6 @@ int main(int argc, char * argv[])
 	printMatrix(4);
 	#endif
 
-	//free all the arrays
-	free(SCALARS);
 	#ifndef DEBUG
 	free(INDEXES);
 	for(i = 0; i < ROWS; i++)
@@ -116,8 +113,6 @@ void makeInput()
 	srand(time(NULL));
 	INPUT = malloc(sizeof(double *)*ROWS);
 	#endif
-	
-	SCALARS = malloc(sizeof(double)*(ROWS-1)*(ROWS)/2);
 
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
@@ -173,13 +168,13 @@ void makeUMatrix()
 	for(i = 0; i < ROWS; i++)
 	{
 		rowI = U[i];
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS, SCALARS) schedule(static)
+#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
 		{
 			rowJ = U[j];
 			if(rowJ[i] == 0 || rowI[i] == 0)
 			{
-				SCALARS[getScalarsIndex(i,j)] = 0;
+				tempScalar = 0;
 			}
 			else
 			{
