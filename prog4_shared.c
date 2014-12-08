@@ -20,7 +20,7 @@ the algorithm gets a proper result.
 #include <time.h>
 
 #ifdef DEBUG
-double INPUT[3][3] = {{4,2,2},{1,2,8},{2,4,4}};
+double INPUT[3][3] = {{4,2,2},{0,0,8},{2,4,4}};
 unsigned int ROWS = 3;
 #else
 double **INPUT;
@@ -29,12 +29,10 @@ unsigned int ROWS;
 
 double **L;
 double **U;
-int * INDEXES;
 
 unsigned long NUM_THREADS;
 
 void printMatrix(unsigned int code);
-unsigned int getScalarsIndex(unsigned int row1, unsigned int row2);
 void subtractRow(double *original, double* toChange, double multiplier);
 void makeUMatrix();
 void makeInput();
@@ -72,7 +70,6 @@ int main(int argc, char * argv[])
 	#endif
 
 	#ifndef DEBUG
-	free(INDEXES);
 	for(i = 0; i < ROWS; i++)
 	{
 		free(INPUT[i]);
@@ -93,10 +90,6 @@ int main(int argc, char * argv[])
 	return 0;
 }
 
-unsigned int getScalarsIndex(unsigned int row1, unsigned int row2)
-{
-	return row1 + row2 + INDEXES[row1];
-}
 /******************************************************************************
 Gets the input of the matrix information from the user (redirect i/o) is
 recommended. L is initialized to the identity matrix of the appropriate
@@ -116,7 +109,6 @@ void makeInput()
 
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
-	INDEXES = malloc(sizeof(unsigned int *)*ROWS);
 
 	for(i = 0; i < ROWS; i++)
 	{
@@ -139,15 +131,6 @@ void makeInput()
 			{
 				L[i][j] = 0;
 			}
-		}
-		if(i == 0 || i == 1)
-		{
-			INDEXES[i] = -1;
-		}
-		else
-		{
-			INDEXES[i] = INDEXES[i-1] + i - 1;
-			
 		}		
 	}
 }
