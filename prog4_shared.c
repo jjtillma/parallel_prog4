@@ -18,16 +18,15 @@ the algorithm gets a proper result.
 #include <stdlib.h>
 #include <omp.h>
 #include <time.h>
+#include <math.h>
 
 #ifdef DEBUG
-double INPUT[4][4] = {{0,2,2,1},{0,0,2,8},{2,4,4,3},{1,2,3,4}};
-unsigned int ROWS = 4;
+double INPUT[3][3] = {{4,2,2},{1,2,8},{2,2,4}};
+unsigned int ROWS = 3;
 #else
 double **INPUT;
 unsigned int ROWS;
 #endif
-
-int USED_P = 0;
 
 double **L;
 double **U;
@@ -68,10 +67,10 @@ int main(int argc, char * argv[])
 	//print the input, then L, then U, then the result of multiplication
 	#ifdef DEBUG
 	printMatrix(3);
-	printMatrix(5);
+	printMatrix(4);
 	printMatrix(1);
 	printMatrix(2);
-	printMatrix(4);
+	printMatrix(5);
 	#endif
 
 	#ifndef DEBUG
@@ -174,7 +173,7 @@ void makeUMatrix()
 		for(j = i + 1; j < ROWS; j++)
 		{
 			rowJ = U[j];
-			if(rowJ[i] == 0)
+			if(rowJ[i] == 0 || rowI[i] == 0)
 			{
 				//if the J is 0, don't do anything
 				tempScalar = 0;
@@ -197,46 +196,61 @@ having meaning instead of just being the identity matrix.
 ******************************************************************************/
 void handleRowSwap(unsigned int i)
 {
-	unsigned int j, k;
-	double temp;
+	unsigned int j, maxIndex = 0;
+	double temp, max = 0;
 	double *tempPtr, *rowI, *rowJ;
+	double *maxes = malloc(sizeof(double *) * NUM_THREADS);
+	unsigned int *maxIndexes = malloc(sizeof(unsigned int *) * NUM_THREADS);
 
-	for(j = i + 1; j < ROWS; j++)
+
+	#pragma omp parallel num_threads(NUM_THREADS) private(j) shared(maxIndexes, maxes, ROWS, U, i, rowJ)
 	{
-		if(U[j][i] != 0)
+		unsigned long thread = omp_get_thread_num();
+		unsigned int start = (unsigned int)(thread * ceil((double)i/ROWS)) + i;
+		unsigned int stop = start + start - i;
+		printf("stop %d\n", stop);
+		for(j = start; j < stop && j < ROWS; j++)
 		{
-			//swap a row in U
-			tempPtr = U[i];
-			U[i] = U[j];
-			U[j] = tempPtr;
-			//swap a row in P
-			tempPtr = P[i];
-			P[i] = P[j];
-			P[j] = tempPtr;
-			
-			rowI = L[i];
-			rowJ = L[j];
-			#pragma omp parallel for num_threads(NUM_THREADS) private(k, temp) shared(i, j, rowI, rowJ) schedule(dynamic)
-			for(k = 0; k < j; k++)
+			rowJ = U[j];
+			if(abs(rowJ[i]) > abs(maxes[thread]))
 			{
-				//if this is still before the diagonal, swap the values vertically in L
-				if(k < i)
-				{
-					temp = rowI[k];
-					rowI[k] = rowJ[k];
-					rowJ[k] = temp;
-				}
-				else
-				{
-					//hit when the value isn't below the diagonal
-					//stops the loop without using "break"
-					k = j;
-				}
+				maxIndexes[thread] = j;
+				maxes[thread] = rowJ[i];
 			}
-			USED_P = 1;
-			break;
-		}	
+		}
 	}
+
+	for(j = 0; j < NUM_THREADS; j++)
+	{
+		if(abs(maxes[j]) > abs(max))
+		{
+			max = maxes[j];
+			maxIndex = maxIndexes[j];
+		}
+	}
+	if(maxIndex != i)
+	{
+		//swap a row in U
+		tempPtr = U[i];
+		U[i] = U[maxIndex];
+		U[maxIndex] = tempPtr;
+		//swap a row in P
+		tempPtr = P[i];
+		P[i] = P[maxIndex];
+		P[maxIndex] = tempPtr;
+	
+		rowI = L[i];
+		rowJ = L[maxIndex];
+		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, rowI, rowJ) schedule(dynamic)
+		for(j = 0; j < i; j++)
+		{
+			temp = rowI[j];
+			rowI[j] = rowJ[j];
+			rowJ[j] = temp;
+		}
+	}
+	free(maxes);
+	free(maxIndexes);
 }
 /******************************************************************************
 Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
@@ -255,7 +269,7 @@ void printMatrix(unsigned int code)
 			{
 				for(j = 0; j < ROWS; j++)
 				{
-					printf("%0.2lf    ", L[i][j]);
+					printf("%6.2lf    ", L[i][j]);
 				}
 				printf("\n");
 			}
@@ -268,7 +282,7 @@ void printMatrix(unsigned int code)
 			{
 				for(j = 0; j < ROWS; j++)
 				{
-					printf("%0.2lf    ", U[i][j]);
+					printf("%6.2lf    ", U[i][j]);
 				}
 				printf("\n");
 			}
@@ -281,13 +295,13 @@ void printMatrix(unsigned int code)
 			{
 				for(j = 0; j < ROWS; j++)
 				{
-					printf("%0.2lf    ", INPUT[i][j]);
+					printf("%6.2lf    ", INPUT[i][j]);
 				}
 				printf("\n");
 			}
 			break;
 		}
-		case 4:
+		case 5:
 		{
 			/*this mess of nonsense performs a P'(LU) multiplication where P' is
 			the transformation of the matrix P. It first multiplies L and U,
@@ -312,8 +326,10 @@ void printMatrix(unsigned int code)
 						sum = sum + L[k][j] * U[j][i];
 					}
 					sumContainer[k][i] = sum;
+					printf("%6.2lf    ", sumContainer[k][i]);
 					sum = 0;
 				}
+				printf("\n");
 			}
 
 			for(k = 0; k < ROWS; k++)
@@ -324,7 +340,7 @@ void printMatrix(unsigned int code)
 					{
 						sum = sum + P[j][k] * sumContainer[j][i];
 					}
-					printf("%0.2lf    ", sum);
+					printf("%6.2lf    ", sum);
 					sum = 0;
 				}
 				printf("\n");
@@ -337,19 +353,14 @@ void printMatrix(unsigned int code)
 			free(sumContainer);
 			break;
 		}
-		case 5:
+		case 4:
 		{
-			if(USED_P == 0)
-			{
-				printf("****There is no P Matrix****\n");
-				return;
-			}
 			printf("**********P Matrix**********\n");
 			for(i = 0; i < ROWS; i++)
 			{
 				for(j = 0; j < ROWS; j++)
 				{
-					printf("%0.2lf    ", P[i][j]);
+					printf("%6.2lf    ", P[i][j]);
 				}
 				printf("\n");
 			}
