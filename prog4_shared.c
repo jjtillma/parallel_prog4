@@ -20,20 +20,24 @@ the algorithm gets a proper result.
 #include <time.h>
 
 #ifdef DEBUG
-double INPUT[3][3] = {{4,2,2},{0,0,8},{2,4,4}};
-unsigned int ROWS = 3;
+double INPUT[4][4] = {{0,2,2,1},{0,0,2,8},{2,4,4,3},{1,2,3,4}};
+unsigned int ROWS = 4;
 #else
 double **INPUT;
 unsigned int ROWS;
 #endif
 
+int USED_P = 0;
+
 double **L;
 double **U;
+double **P;
 
 unsigned long NUM_THREADS;
 
 void printMatrix(unsigned int code);
 void subtractRow(double *original, double* toChange, double multiplier);
+void handleRowSwap(unsigned int i);
 void makeUMatrix();
 void makeInput();
 
@@ -64,6 +68,7 @@ int main(int argc, char * argv[])
 	//print the input, then L, then U, then the result of multiplication
 	#ifdef DEBUG
 	printMatrix(3);
+	printMatrix(5);
 	printMatrix(1);
 	printMatrix(2);
 	printMatrix(4);
@@ -76,16 +81,16 @@ int main(int argc, char * argv[])
 	}
 	free(INPUT);
 	#endif
+	
 	for(i = 0; i < ROWS; i++)
 	{
+		free(P[i]);
+		free(U[i]);
 		free(L[i]);
 	}
-	free(L);
-	for(i = 0; i < ROWS; i++)
-	{
-		free(U[i]);
-	}
+	free(P);
 	free(U);
+	free(L);
 
 	return 0;
 }
@@ -109,6 +114,7 @@ void makeInput()
 
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
+	P = malloc(sizeof(double *)*ROWS);
 
 	for(i = 0; i < ROWS; i++)
 	{
@@ -116,20 +122,25 @@ void makeInput()
 		INPUT[i] = malloc(sizeof(double)*ROWS);
 		#endif
 		L[i] = malloc(sizeof(double)*ROWS);
+		P[i] = malloc(sizeof(double *)*ROWS);
 		U[i] = malloc(sizeof(double)*ROWS);
 		for(j = 0; j < ROWS; j++)
 		{
 			#ifndef DEBUG
 			INPUT[i][j] = rand() % 20 + 1;
 			#endif
+			//initialize U to be INPUT
 			U[i][j] = INPUT[i][j];
+			//initialize L and P to be the identitiy matrix
 			if(i == j)
 			{
 				L[i][j] = 1;
+				P[i][j] = 1;
 			}
 			else if(j <= ROWS)
 			{
 				L[i][j] = 0;
+				P[i][j] = 0;
 			}
 		}		
 	}
@@ -151,16 +162,26 @@ void makeUMatrix()
 	for(i = 0; i < ROWS; i++)
 	{
 		rowI = U[i];
-#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS) schedule(static)
+		if(rowI[i] == 0)
+		{
+			//this condition means we need a row swap
+			//perform the swap and reset rowI to the new U[i]
+			handleRowSwap(i);
+			rowI = U[i];
+		}
+
+		#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
 		{
 			rowJ = U[j];
-			if(rowJ[i] == 0 || rowI[i] == 0)
+			if(rowJ[i] == 0)
 			{
+				//if the J is 0, don't do anything
 				tempScalar = 0;
 			}
 			else
 			{
+				//otherwise, find the scalar and use it for the subtraction and put it in L
 				tempScalar = rowJ[i]/rowI[i];
 				L[j][i] = tempScalar;
 				subtractRow(rowI, rowJ, tempScalar);
@@ -168,9 +189,59 @@ void makeUMatrix()
 		}
 	}
 }
+
+/******************************************************************************
+This function handles the nightmare tha tis a row swap. It swaps entire rows in
+P and U. And swaps anything below the diagonal in L. It also flags P as now
+having meaning instead of just being the identity matrix.
+******************************************************************************/
+void handleRowSwap(unsigned int i)
+{
+	unsigned int j, k;
+	double temp;
+	double *tempPtr, *rowI, *rowJ;
+
+	for(j = i + 1; j < ROWS; j++)
+	{
+		if(U[j][i] != 0)
+		{
+			//swap a row in U
+			tempPtr = U[i];
+			U[i] = U[j];
+			U[j] = tempPtr;
+			//swap a row in P
+			tempPtr = P[i];
+			P[i] = P[j];
+			P[j] = tempPtr;
+			
+			rowI = L[i];
+			rowJ = L[j];
+			#pragma omp parallel for num_threads(NUM_THREADS) private(k, temp) shared(i, j, rowI, rowJ) schedule(dynamic)
+			for(k = 0; k < j; k++)
+			{
+				//if this is still before the diagonal, swap the values vertically in L
+				if(k < i)
+				{
+					temp = rowI[k];
+					rowI[k] = rowJ[k];
+					rowJ[k] = temp;
+				}
+				else
+				{
+					//hit when the value isn't below the diagonal
+					//stops the loop without using "break"
+					k = j;
+				}
+			}
+			USED_P = 1;
+			break;
+		}	
+	}
+}
 /******************************************************************************
 Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
-3 prints INPUT, 4 prints a Multiplied matrix.
+3 prints INPUT, 4 prints a Multiplied matrix. These prints are not factored
+into any timings taken.
 ******************************************************************************/
 void printMatrix(unsigned int code)
 {
@@ -184,7 +255,7 @@ void printMatrix(unsigned int code)
 			{
 				for(j = 0; j < ROWS; j++)
 				{
-					printf("%0.2f    ", L[i][j]);
+					printf("%0.2lf    ", L[i][j]);
 				}
 				printf("\n");
 			}
@@ -218,7 +289,19 @@ void printMatrix(unsigned int code)
 		}
 		case 4:
 		{
+			/*this mess of nonsense performs a P'(LU) multiplication where P' is
+			the transformation of the matrix P. It first multiplies L and U,
+			storing the result. Then does P' * result to get the overall result.
+			This isn't even close to optimized, but the only point of this is to
+			output some information for debugging that shows that the LU
+			Decomposition actually succeeded.*/
 			double sum = 0;
+			double ** sumContainer = malloc(sizeof(double *)*ROWS);
+			for(i = 0; i < ROWS; i++)
+			{
+				sumContainer[i] = malloc(sizeof(double)*ROWS);	
+			}
+
 			printf("**********Multiply Matrix**********\n");
 			for(k = 0; k < ROWS; k++)
 			{
@@ -228,8 +311,45 @@ void printMatrix(unsigned int code)
 					{
 						sum = sum + L[k][j] * U[j][i];
 					}
+					sumContainer[k][i] = sum;
+					sum = 0;
+				}
+			}
+
+			for(k = 0; k < ROWS; k++)
+			{
+				for(i = 0; i < ROWS; i++)
+				{
+					for(j = 0; j < ROWS; j++)
+					{
+						sum = sum + P[j][k] * sumContainer[j][i];
+					}
 					printf("%0.2lf    ", sum);
 					sum = 0;
+				}
+				printf("\n");
+			}
+
+			for(i = 0; i < ROWS; i++)
+			{
+				free(sumContainer[i]);	
+			}
+			free(sumContainer);
+			break;
+		}
+		case 5:
+		{
+			if(USED_P == 0)
+			{
+				printf("****There is no P Matrix****\n");
+				return;
+			}
+			printf("**********P Matrix**********\n");
+			for(i = 0; i < ROWS; i++)
+			{
+				for(j = 0; j < ROWS; j++)
+				{
+					printf("%0.2lf    ", P[i][j]);
 				}
 				printf("\n");
 			}
