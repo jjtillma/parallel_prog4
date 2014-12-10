@@ -4,6 +4,8 @@ File: prog4_shared.c
 Purpose: Perform LU Decomposition on a matrix randomly generated with a set
 number of rows. The matrix will be a square matrix because a square matrix is
 required to actually use the LU Decomposition for many of its applications.
+This does a column-based version of the algorithm rather than a row-based
+version.
 
 Compiling: gcc -O -g -Wall -fopenmp -o prog4_shared prog4_shared.c [-DDEBUG]
 
@@ -358,8 +360,7 @@ void printMatrix(unsigned int code)
 
 /******************************************************************************
 This function subtracts one row from another while scaling the row that
-corresponds to the "oroginal" indexer. It returns a new row rather than
-assigning to the original row in an effort to shorten critical sections.
+corresponds to the "original" indexer.
 ******************************************************************************/
 void subtractRow(unsigned int original, unsigned int toChange, double multiplier)
 {
