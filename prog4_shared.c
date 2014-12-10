@@ -175,7 +175,7 @@ having meaning instead of just being the identity matrix.
 ******************************************************************************/
 void handleRowSwap(unsigned int i)
 {
-	unsigned int j, maxIndex = 0;
+	unsigned int j, maxIndex = i;
 	double temp, max = 0;
 	double *tempPtr, *rowI, *rowJ;
 	double *maxes = malloc(sizeof(double) * NUM_THREADS);
@@ -193,7 +193,7 @@ void handleRowSwap(unsigned int i)
 		unsigned long thread = omp_get_thread_num();
 		unsigned int start = (unsigned int)(thread * ceil((double)ROWS/NUM_THREADS)) + i;
 		unsigned int stop = start + ceil((double)ROWS/NUM_THREADS);
-		//printf("%d, %d, %d, %d\n", i, thread, start, stop);
+		
 		for(j = start; j < stop && j < ROWS; j++)
 		{
 			rowJ = U[j];
@@ -217,7 +217,6 @@ void handleRowSwap(unsigned int i)
 
 	if(maxIndex != i)
 	{
-		//printf("%d, %lf\n", maxIndex, max);
 		//swap a row in U
 		tempPtr = U[i];
 		U[i] = U[maxIndex];
