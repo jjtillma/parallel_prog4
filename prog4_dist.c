@@ -231,36 +231,31 @@ void makeMatrices(unsigned int size, double *U, double *L, double *P, unsigned i
 		//swap between processes
 		if(i != globalRow && owner != globalOwner)
 		{
+
+printf("swap rows %d and %d\n", i, globalRow);
 			if(my_rank == owner)
 			{
-				//swap rows in U
-				MPI_Send(&U[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
-				MPI_Recv(&U[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				//swap rows in P
-				MPI_Send(&P[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
-				MPI_Recv(&P[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				//swap rows in L
-				MPI_Send(&L[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
-				MPI_Recv(&L[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				double *temp = malloc(sizeof(double)*size*3);
+				swap(temp, &U[(i-start)*size], size);
+				swap(&temp[size], &L[(i-start)*size], size);
+				swap(&temp[2*size], &P[(i-start)*size], size);
+				MPI_Sendrecv_replace(temp, size*3, MPI_DOUBLE, globalOwner, 0, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);		
+				swap(temp, &U[(i-start)*size], size);
+				swap(&temp[size], &L[(i-start)*size], size);
+				swap(&temp[2*size], &P[(i-start)*size], size);
 				L[(i-start)*size+globalRow] = 0;
 				L[(i-start)*size+i] = 1;
-		//printf("done with L\n");
 			}
 			else if(my_rank == globalOwner)
 			{
-				double *temp = malloc(size * sizeof(double));
-				//swap rows in U
-				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				MPI_Send(&U[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
+				double *temp = malloc(sizeof(double)*size*3);
 				swap(temp, &U[(globalRow-start)*size], size);
-				//swap rows in P
-				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				MPI_Send(&P[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
-				swap(temp, &P[(globalRow-start)*size], size);
-				//swap rows in L
-				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				MPI_Send(&L[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
-				swap(temp, &L[(globalRow-start)*size], size);
+				swap(&temp[size], &L[(globalRow-start)*size], size);
+				swap(&temp[2*size], &P[(globalRow-start)*size], size);
+				MPI_Sendrecv_replace(temp, size*3, MPI_DOUBLE, owner, 0, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);		
+				swap(temp, &U[(globalRow-start)*size], size);
+				swap(&temp[size], &L[(globalRow-start)*size], size);
+				swap(&temp[2*size], &P[(globalRow-start)*size], size);
 				L[(globalRow-start)*size+i] = 0;
 				L[(globalRow-start)*size+globalRow] = 1;
 			}		
@@ -268,6 +263,7 @@ void makeMatrices(unsigned int size, double *U, double *L, double *P, unsigned i
 		//swap in same process
 		else if(i != globalRow && my_rank == owner)
 		{
+printf("swap rows %d and %d\n", i, globalRow);
 			//swap rows in U
 			swap(&U[(i-start)*size], &U[(globalRow-start)*size], size);
 			//swap rows in P
@@ -384,8 +380,6 @@ void subtractRow(double* original, double* toChange, double multiplier, unsigned
 	{
 		toChange[i] = toChange[i] - original[i] * multiplier;
 	}
-
-	//return toReturn;
 }
 
 /******************************************************************************
