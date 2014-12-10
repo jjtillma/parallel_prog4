@@ -7,11 +7,12 @@ required to actually use the LU Decomposition for many of its applications.
 
 Compiling: gcc -O -g -Wall -fopenmp -o prog4_shared prog4_shared.c [-DDEBUG]
 
-Usage: prog4_shared [number_of_threads]
+Usage: prog4_shared [number_of_threads] < InputFile.txt > [OutputFile.txt]
 
-Notes: Adding the -DDEBUG will use a static matrix of a set size that outputs
-INPUT, L, U, and the result of L*U for debugging so that it can be seen that
-the algorithm gets a proper result.
+Notes: Adding the -DDEBUG will output the matrices (INPUT, P,L,U, Multiply).
+It changes nothing else. Redirected input is essentially a requirement to
+coherently run this code, several test files have been provided. Redirected
+output is mostly only for viewing output of the LU Decomposition.
 
 ******************************************************************************/
 #include <stdio.h>
@@ -32,7 +33,7 @@ unsigned long NUM_THREADS;
 void printMatrix(unsigned int code);
 void subtractRow(double *original, double* toChange, double multiplier);
 void handleRowSwap(unsigned int i);
-void makeUMatrix();
+void runLUDecomposition();
 void makeInput();
 
 int main(int argc, char * argv[])
@@ -55,7 +56,7 @@ int main(int argc, char * argv[])
 
 	start = omp_get_wtime();
 	//make the U matrix
-	makeUMatrix();
+	runLUDecomposition();
 	length = omp_get_wtime() - start;
 	printf("The LU Decomposition took %lf seconds\n", length);
 
@@ -78,6 +79,7 @@ int main(int argc, char * argv[])
 	free(P);
 	free(U);
 	free(L);
+	free(INPUT);
 
 	return 0;
 }
@@ -131,7 +133,7 @@ matrix and does Guassian Row Elimination up to the point where it becomes a
 Right Upper Matrix. Multipliers for rows are stored in the SCALARS array by the
 scaleURow method for later use by the makeLMatrix() method.
 ******************************************************************************/
-void makeUMatrix()
+void runLUDecomposition()
 {
 	unsigned int i, j;
 	double tempScalar;
@@ -141,13 +143,10 @@ void makeUMatrix()
 	for(i = 0; i < ROWS; i++)
 	{
 		rowI = U[i];
-		if(rowI[i] == 0)
-		{
-			//this condition means we need a row swap
-			//perform the swap and reset rowI to the new U[i]
-			handleRowSwap(i);
-			rowI = U[i];
-		}
+		
+		//perform the swap and reset rowI to the new U[i]
+		handleRowSwap(i);
+		rowI = U[i];
 
 		#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, rowJ) shared(i, rowI, ROWS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
@@ -176,19 +175,25 @@ having meaning instead of just being the identity matrix.
 ******************************************************************************/
 void handleRowSwap(unsigned int i)
 {
-	unsigned int j, maxIndex = 0;
+	unsigned int j, maxIndex = i;
 	double temp, max = 0;
 	double *tempPtr, *rowI, *rowJ;
-	double *maxes = malloc(sizeof(double *) * NUM_THREADS);
-	unsigned int *maxIndexes = malloc(sizeof(unsigned int *) * NUM_THREADS);
+	double *maxes = malloc(sizeof(double) * NUM_THREADS);
+	unsigned int *maxIndexes = malloc(sizeof(unsigned int) * NUM_THREADS);
 
-
-	#pragma omp parallel num_threads(NUM_THREADS) private(j) shared(maxIndexes, maxes, ROWS, U, i, rowJ)
+	#pragma omp parallel for num_threads(NUM_THREADS) private(j) shared(maxes, maxIndexes) schedule(static)
+	for(j = 0; j < NUM_THREADS; j++)
+	{
+		maxes[j] = 0;
+		maxIndexes[j] = 0;
+	}
+	
+	#pragma omp parallel num_threads(NUM_THREADS) private(j, rowJ) shared(maxIndexes, maxes, ROWS, U, i)
 	{
 		unsigned long thread = omp_get_thread_num();
-		unsigned int start = (unsigned int)(thread * ceil((double)i/ROWS)) + i;
-		unsigned int stop = start + start - i;
-		printf("stop %d\n", stop);
+		unsigned int start = (unsigned int)(thread * ceil((double)ROWS/NUM_THREADS)) + i;
+		unsigned int stop = start + ceil((double)ROWS/NUM_THREADS);
+		
 		for(j = start; j < stop && j < ROWS; j++)
 		{
 			rowJ = U[j];
@@ -200,6 +205,7 @@ void handleRowSwap(unsigned int i)
 		}
 	}
 
+	
 	for(j = 0; j < NUM_THREADS; j++)
 	{
 		if(abs(maxes[j]) > abs(max))
@@ -208,6 +214,7 @@ void handleRowSwap(unsigned int i)
 			maxIndex = maxIndexes[j];
 		}
 	}
+
 	if(maxIndex != i)
 	{
 		//swap a row in U
@@ -221,7 +228,8 @@ void handleRowSwap(unsigned int i)
 	
 		rowI = L[i];
 		rowJ = L[maxIndex];
-		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, rowI, rowJ) schedule(dynamic)
+		
+		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, rowI, rowJ) schedule(static)
 		for(j = 0; j < i; j++)
 		{
 			temp = rowI[j];
