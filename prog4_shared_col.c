@@ -144,15 +144,13 @@ void runLUDecomposition()
 	double tempScalar;
 	double *colI;
 
-	
-	//printMatrix(2);
 	for(i = 0; i < ROWS; i++)
 	{
 		colI = U[i];		
 		//perform the swap and reset colI to the new U[i]
 		handleRowSwap(i);
 
-		#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar, colJ) shared(i, colI, ROWS) schedule(static)
+		#pragma omp parallel for num_threads(NUM_THREADS) private(j, tempScalar) shared(i, colI, ROWS) schedule(static)
 		for(j = i + 1; j < ROWS; j++)
 		{
 			if(colI[j] == 0 || colI[i] == 0)
@@ -172,9 +170,8 @@ void runLUDecomposition()
 }
 
 /******************************************************************************
-This function handles the nightmare tha tis a row swap. It swaps entire rows in
-P and U. And swaps anything below the diagonal in L. It also flags P as now
-having meaning instead of just being the identity matrix.
+This function handles the nightmare that is a row swap. It swaps entire rows in
+P and U. And swaps anything below the diagonal in L.
 ******************************************************************************/
 void handleRowSwap(unsigned int i)
 {
@@ -219,8 +216,6 @@ void handleRowSwap(unsigned int i)
 		}
 	}
 
-	//printMatrix(2);
-	//printf("%d, %lf\n", maxIndex, max);
 	if(maxIndex != i)
 	{
 		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, colJ) shared(i, maxIndex, L) schedule(static)
