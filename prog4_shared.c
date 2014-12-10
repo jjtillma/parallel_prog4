@@ -7,11 +7,12 @@ required to actually use the LU Decomposition for many of its applications.
 
 Compiling: gcc -O -g -Wall -fopenmp -o prog4_shared prog4_shared.c [-DDEBUG]
 
-Usage: prog4_shared [number_of_threads]
+Usage: prog4_shared [number_of_threads] < InputFile.txt > [OutputFile.txt]
 
-Notes: Adding the -DDEBUG will use a static matrix of a set size that outputs
-INPUT, L, U, and the result of L*U for debugging so that it can be seen that
-the algorithm gets a proper result.
+Notes: Adding the -DDEBUG will output the matrices (INPUT, P,L,U, Multiply).
+It changes nothing else. Redirected input is essentially a requirement to
+coherently run this code, several test files have been provided. Redirected
+output is mostly only for viewing output of the LU Decomposition.
 
 ******************************************************************************/
 #include <stdio.h>
@@ -32,7 +33,7 @@ unsigned long NUM_THREADS;
 void printMatrix(unsigned int code);
 void subtractRow(double *original, double* toChange, double multiplier);
 void handleRowSwap(unsigned int i);
-void makeUMatrix();
+void runLUDecomposition();
 void makeInput();
 
 int main(int argc, char * argv[])
@@ -55,7 +56,7 @@ int main(int argc, char * argv[])
 
 	start = omp_get_wtime();
 	//make the U matrix
-	makeUMatrix();
+	runLUDecomposition();
 	length = omp_get_wtime() - start;
 	printf("The LU Decomposition took %lf seconds\n", length);
 
@@ -131,7 +132,7 @@ matrix and does Guassian Row Elimination up to the point where it becomes a
 Right Upper Matrix. Multipliers for rows are stored in the SCALARS array by the
 scaleURow method for later use by the makeLMatrix() method.
 ******************************************************************************/
-void makeUMatrix()
+void runLUDecomposition()
 {
 	unsigned int i, j;
 	double tempScalar;
