@@ -154,7 +154,7 @@ void runLUDecomposition()
 		for(j = i + 1; j < ROWS; j++)
 		{
 			rowJ = U[j];
-			if(rowJ[i] == 0 || rowI[i] == 0)
+			if(rowJ[i] == 0)
 			{
 				//if the J is 0, don't do anything
 				tempScalar = 0;
@@ -222,7 +222,7 @@ void handleRowSwap(unsigned int i)
 	
 		rowI = L[i];
 		rowJ = L[maxIndex];
-		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, rowI, rowJ) schedule(dynamic)
+		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp) shared(i, rowI, rowJ) schedule(static)
 		for(j = 0; j < i; j++)
 		{
 			temp = rowI[j];
