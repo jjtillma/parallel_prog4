@@ -20,13 +20,8 @@ the algorithm gets a proper result.
 #include <time.h>
 #include <math.h>
 
-#ifdef DEBUG
-double INPUT[3][3] = {{4,2,2},{1,2,8},{2,2,4}};
-unsigned int ROWS = 3;
-#else
 double **INPUT;
 unsigned int ROWS;
-#endif
 
 double **L;
 double **U;
@@ -72,20 +67,13 @@ int main(int argc, char * argv[])
 	printMatrix(2);
 	printMatrix(5);
 	#endif
-
-	#ifndef DEBUG
-	for(i = 0; i < ROWS; i++)
-	{
-		free(INPUT[i]);
-	}
-	free(INPUT);
-	#endif
 	
 	for(i = 0; i < ROWS; i++)
 	{
 		free(P[i]);
 		free(U[i]);
 		free(L[i]);
+		free(INPUT[i]);
 	}
 	free(P);
 	free(U);
@@ -104,12 +92,8 @@ void makeInput()
 {
 	unsigned int i, j;
 
-	#ifndef DEBUG
-	printf("Enter number of rows for the square matrix: ");
 	scanf("%u", &ROWS);
-	srand(time(NULL));
 	INPUT = malloc(sizeof(double *)*ROWS);
-	#endif
 
 	L = malloc(sizeof(double *)*ROWS);
 	U = malloc(sizeof(double *)*ROWS);
@@ -117,17 +101,13 @@ void makeInput()
 
 	for(i = 0; i < ROWS; i++)
 	{
-		#ifndef DEBUG
 		INPUT[i] = malloc(sizeof(double)*ROWS);
-		#endif
 		L[i] = malloc(sizeof(double)*ROWS);
 		P[i] = malloc(sizeof(double *)*ROWS);
 		U[i] = malloc(sizeof(double)*ROWS);
 		for(j = 0; j < ROWS; j++)
 		{
-			#ifndef DEBUG
-			INPUT[i][j] = rand() % 20 + 1;
-			#endif
+			scanf("%lf", &INPUT[i][j]);
 			//initialize U to be INPUT
 			U[i][j] = INPUT[i][j];
 			//initialize L and P to be the identitiy matrix
@@ -326,10 +306,8 @@ void printMatrix(unsigned int code)
 						sum = sum + L[k][j] * U[j][i];
 					}
 					sumContainer[k][i] = sum;
-					printf("%6.2lf    ", sumContainer[k][i]);
 					sum = 0;
 				}
-				printf("\n");
 			}
 
 			for(k = 0; k < ROWS; k++)
