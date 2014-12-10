@@ -15,11 +15,14 @@ this program and an example input file should be shipped with this file.
 #include <stdlib.h>
 #include <mpi.h>
 #include <time.h>
+#include <math.h>
 
 void printMatrix(unsigned int code, unsigned int ROWS, double *arr);
 void subtractRow(double *original, double* toChange, double multiplier, unsigned int SIZE);
-void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, int *INDEXES, double *SCALARS);
-void makeMatrices(unsigned int size, double *U, double *L, unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank);
+void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, double *P);
+void makeMatrices(unsigned int size, double *U, double *L, double *P,  unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank, unsigned int comm_sz);
+void swap(double *a, double *b, int size);
+void multiplyMatrices(double* P, double *L, double *U, int size);
 
 int main(int argc, char * argv[])
 {
@@ -27,8 +30,7 @@ int main(int argc, char * argv[])
 	unsigned int 	size;
 	double 		*L;
 	double 		*U;
-	int		*indexes;
-	double		*scalars;
+	double 		*P;
 	int		comm_sz;
 	int		my_rank;
 	double 		t_start, t_length;
@@ -36,6 +38,7 @@ int main(int argc, char * argv[])
 	unsigned int 	block;
 	double 		*localU;
 	double		*localL;	
+	double 		*localP;
 
 	MPI_Init(NULL, NULL);
 
@@ -46,7 +49,6 @@ int main(int argc, char * argv[])
 	//get user input and set up the original states of the matrices
 	if(my_rank == 0)
 	{
-		printf("Enter number of rows for the square matrix: ");
 		scanf("%u", &size);
 	
 		if(size % comm_sz != 0)
@@ -60,10 +62,9 @@ int main(int argc, char * argv[])
 			input = malloc(sizeof(double) * size * size);
 			L = malloc(sizeof(double) * size * size);
 			U = malloc(sizeof(double) * size * size);
-			indexes = malloc(sizeof(unsigned int) * size);
-			scalars = malloc(sizeof(double)*(size-1)*(size)/2);
+			P = malloc(sizeof(double) * size * size);
 		
-			makeInput(size, input, L, U, indexes, scalars);
+			makeInput(size, input, L, U, P);
 			t_start = MPI_Wtime();
 		}
 	}
@@ -83,39 +84,47 @@ int main(int argc, char * argv[])
 	//allocate memory for local rows
 	localU = malloc(sizeof(double) * block * size);
 	localL = malloc(sizeof(double) * block * size);
+	localP = malloc(sizeof(double) * block * size);
 
 	//distribute matrix
 	MPI_Scatter(input, block*size, MPI_DOUBLE, localU, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	MPI_Scatter(L, block*size, MPI_DOUBLE, localL, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatter(P, block*size, MPI_DOUBLE, localP, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 	//make the L and U matrices
-	makeMatrices(size, localU, localL, block, start, end, my_rank);
+	makeMatrices(size, localU, localL, localP, block, start, end, my_rank, comm_sz);
 	
 	//gather results
-	MPI_Gather(localU, block*size, MPI_DOUBLE,  U, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
-	MPI_Gather(localL, block*size, MPI_DOUBLE,  L, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
-	
+	MPI_Gather(localU, block*size, MPI_DOUBLE, U, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
+	MPI_Gather(localL, block*size, MPI_DOUBLE, L, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
+	MPI_Gather(localP, block*size, MPI_DOUBLE, P, block*size, MPI_DOUBLE, 0, MPI_COMM_WORLD);	
+
 	//print results
 	if(my_rank == 0)
 	{
 		t_length = MPI_Wtime() - t_start;
 		printf("The LU Decomposition took %lf seconds\n", t_length);
+		
+		#ifdef DEBUG
 		printMatrix(3, size, input);
 		printMatrix(1, size, L);
 		printMatrix(2, size, U);
+		printMatrix(4, size, P);
+		multiplyMatrices(P, L, U, size);
+		#endif
 	}
 	
 	//free all the arrays
 	if(my_rank == 0)
 	{
-		free(scalars);
-		free(indexes);
 		free(input);
 		free(L);
 		free(U);
+		free(P);
 	}
 	free(localU);
 	free(localL);
+	free(localP);
 
 	MPI_Finalize();
 	return 0;
@@ -127,7 +136,7 @@ recommended. L is initialized to the identity matrix of the appropriate
 dimensions. U is initialized to a copy of the INPUT matrix so that the INPUT
 matrix is preserved for output.
 ******************************************************************************/
-void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, int *INDEXES, double *SCALARS)
+void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, double *P)
 {
 	unsigned int i, j;
 
@@ -140,19 +149,13 @@ void makeInput(unsigned int SIZE, double *INPUT, double *L, double *U, int *INDE
 			if(i == j)
 			{
 				L[i*SIZE+j] = 1;
+				P[i*SIZE+j] = 1;
 			}
 			else
 			{
 				L[i*SIZE+j] = 0;
+				P[i*SIZE+j] = 0;
 			}
-		}
-		if(i == 0 || i == 1)
-		{
-			INDEXES[i] = -1;
-		}
-		else
-		{
-			INDEXES[i] = INDEXES[i-1] + i - 1;
 		}
 	}
 }
@@ -163,21 +166,121 @@ matrix and does Guassian Row Elimination up to the point where it becomes a
 Right Upper Matrix. Multipliers for rows are stored in the SCALARS array by the
 scaleURow method for later use by the makeLMatrix() method.
 ******************************************************************************/
-void makeMatrices(unsigned int size, double *U, double *L, unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank)
+void makeMatrices(unsigned int size, double *U, double *L, double *P, unsigned int block, unsigned int start, unsigned int end, unsigned int my_rank, unsigned int comm_sz)
 {
 	unsigned int i, j;
 	int owner;
 	double scalar;
 	double *rowI;
 	double *rowJ;
+	double localMax;
+	int localMaxRow;
+	double *potential;
+	int *potentialRows;
+	double globalMax;
+	int globalRow;
+	int globalOwner;
 
 	//allocate rows
 	rowI = malloc(size * sizeof(double));
 
-	for(i = 0; i < size; i++)
+	//allocate memory for finding global max
+	if (my_rank == 0)
 	{
-		//send necessary row to all processes
+		potential = malloc(comm_sz * sizeof(double));
+		potentialRows = malloc(comm_sz * sizeof(int));
+	}
+
+	for(i = 0; i < size-1; i++)
+	{
+		//find max to put in diagonal for row swap
+		//first, local max
+		localMax = -1;
+		localMaxRow = -1;
+		for(j = 0; j < block; j++)
+		{
+			if(j+start >= i && abs(U[j*size+i]) > localMax)
+			{
+				localMax = abs(U[j*size+i]);
+				localMaxRow = j + start;
+			}
+		}
+
+		//send to process 0	
+		MPI_Gather(&localMax, 1, MPI_DOUBLE, potential, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		MPI_Gather(&localMaxRow, 1, MPI_INT, potentialRows, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		//find row with max for diagonal
+		if(my_rank == 0)
+		{
+			globalMax = -1;
+			for(j = 0; j < comm_sz; j++)
+			{
+				if(potential[j] > globalMax)
+				{
+					globalMax = potential[j];
+					globalRow = potentialRows[j];
+				}
+			}
+		}	
+		//send location of new max row to all processes
+		MPI_Bcast(&globalRow, 1, MPI_INT, 0, MPI_COMM_WORLD);	
+
+		//swap rows if necessary
 		owner = i / block;
+		globalOwner = globalRow / block;
+		//swap between processes
+		if(i != globalRow && owner != globalOwner)
+		{
+			if(my_rank == owner)
+			{
+				//swap rows in U
+				MPI_Send(&U[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
+				MPI_Recv(&U[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				//swap rows in P
+				MPI_Send(&P[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
+				MPI_Recv(&P[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				//swap rows in L
+				MPI_Send(&L[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD);
+				MPI_Recv(&L[(i-start)*size], size, MPI_DOUBLE, globalOwner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				L[(i-start)*size+globalRow] = 0;
+				L[(i-start)*size+i] = 1;
+		//printf("done with L\n");
+			}
+			else if(my_rank == globalOwner)
+			{
+				double *temp = malloc(size * sizeof(double));
+				//swap rows in U
+				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				MPI_Send(&U[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
+				swap(temp, &U[(globalRow-start)*size], size);
+				//swap rows in P
+				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				MPI_Send(&P[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
+				swap(temp, &P[(globalRow-start)*size], size);
+				//swap rows in L
+				MPI_Recv(temp, size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+				MPI_Send(&L[(globalRow-start)*size], size, MPI_DOUBLE, owner, 0, MPI_COMM_WORLD);
+				swap(temp, &L[(globalRow-start)*size], size);
+				L[(globalRow-start)*size+i] = 0;
+				L[(globalRow-start)*size+globalRow] = 1;
+			}		
+		}
+		//swap in same process
+		else if(i != globalRow && my_rank == owner)
+		{
+			//swap rows in U
+			swap(&U[(i-start)*size], &U[(globalRow-start)*size], size);
+			//swap rows in P
+			swap(&P[(i-start)*size], &P[(globalRow-start)*size], size);
+			//swap below diagonal in L
+			swap(&L[(i-start)*size], &L[(globalRow-start)*size], size);
+			L[(i-start)*size+globalRow] = 0;
+			L[(i-start)*size+i] = 1;
+			L[(globalRow-start)*size+i] = 0;
+			L[(globalRow-start)*size+globalRow] = 1;
+		}
+
+		//send necessary row to all processes
 		if(my_rank == owner)
 		{
 			for (j=0; j < size; j++)
@@ -206,6 +309,22 @@ void makeMatrices(unsigned int size, double *U, double *L, unsigned int block, u
 }
 
 /******************************************************************************
+Swap two rows of a matrix with pointer assignment.
+******************************************************************************/
+void swap(double *a, double *b, int size)
+{
+	int i;
+	double temp;
+
+	for(i = 0; i < size; i++)
+	{
+		temp = a[i];
+		a[i] = b[i];
+		b[i] = temp;
+	}
+}
+
+/******************************************************************************
 Prints the matrix specified by the code passed into it. 1 prints L, 2 prints U,
 3 prints INPUT.
 ******************************************************************************/
@@ -217,12 +336,12 @@ void printMatrix(unsigned int code, unsigned int ROWS, double *arr)
 	{
 		case 1:
 		{
-			printf("**********L Matrix**********\n");
+			printf("**********L Matrix**************\n");
 			break;
 		}
 		case 2:
 		{
-			printf("**********U Matrix**********\n");
+			printf("**********U Matrix**************\n");
 			break;
 		}
 		case 3:
@@ -230,31 +349,22 @@ void printMatrix(unsigned int code, unsigned int ROWS, double *arr)
 			printf("**********Input Matrix**********\n");
 			break;
 		}
-		/*case 4:
+		case 4:
 		{
-			double sum = 0;
-			printf("**********Multiply Matrix**********\n");
-			for(k = 0; k < ROWS; k++)
-			{
-				for(i = 0; i < ROWS; i++)
-				{
-					for(j = 0; j < ROWS; j++)
-					{
-						sum = sum + L[k][j] * U[j][i];
-					}
-					printf("%0.2lf    ", sum);
-					sum = 0;
-				}
-				printf("\n");
-			}
+			printf("**********P Matrix**************\n");
 			break;
-		}*/
+		}
+		case 5:
+		{
+			printf("**********Multiply Matrix**********\n");
+			break;
+		}
 	}
 	for(i = 0; i < ROWS; i++)
 	{
 		for(j = 0; j < ROWS; j++)
 		{
-			printf("%lf    ", arr[i*ROWS+j]);
+			printf("%5.2lf    ", arr[i*ROWS+j]);
 		}
 		printf("\n");
 	}
@@ -276,4 +386,43 @@ void subtractRow(double* original, double* toChange, double multiplier, unsigned
 	}
 
 	//return toReturn;
+}
+
+/******************************************************************************
+Multiply P'LU and display results to compare against original matrix A.
+******************************************************************************/
+void multiplyMatrices(double* P, double *L, double *U, int size)
+{
+	int i, j, k;
+	double sum = 0;
+	double *sumContainer = malloc(sizeof(double) * size * size);
+	double *sumContainer2 = malloc(sizeof(double) * size * size);
+
+	for(k = 0; k < size; k++)
+	{
+		for (i = 0; i < size; i++)
+		{
+			for(j = 0; j < size; j++)
+				sum = sum + L[k*size+j] * U[j*size+i];
+			sumContainer[k*size+i] = sum;
+			sum = 0;
+		}
+	}
+
+	for(k = 0; k < size; k++)
+	{
+		for (i = 0; i < size; i++)
+		{
+			for(j = 0; j < size; j++)
+				sum = sum + P[j*size+k] * sumContainer[j*size+i];
+			sumContainer2[k*size+i] = sum;
+			sum = 0;
+		}
+	}
+
+	printMatrix(5, size, sumContainer2);
+
+	free(sumContainer);
+	free(sumContainer2);
+	return;	
 }
