@@ -7,7 +7,7 @@ EXECS = make_matrix prog4_shared prog4_dist
 all: $(EXECS)
 
 prog4_shared: prog4_shared.c
-	$(CC) $(FLAGS) -fopenmp -o $@ $? $(LIBS)
+	$(CC) $(FLAGS) -fopenmp -lm -o $@ $? $(LIBS)
 
 prog4_dist: prog4_dist.c
 	$(MCC) $(FLAGS) -std=c99 -lm -o $@ $?
