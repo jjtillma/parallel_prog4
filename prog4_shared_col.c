@@ -105,6 +105,7 @@ void makeInput()
 
 	for(i = 0; i < ROWS; i++)
 	{
+		//pre make all of the matrices
 		INPUT[i] = malloc(sizeof(double)*ROWS);
 		L[i] = malloc(sizeof(double)*ROWS);
 		P[i] = malloc(sizeof(double *)*ROWS);
@@ -184,6 +185,7 @@ void handleRowSwap(unsigned int i)
 	double *maxes = malloc(sizeof(double) * NUM_THREADS);
 	unsigned int *maxIndexes = malloc(sizeof(unsigned int) * NUM_THREADS);
 
+	//initialize the arrays so that we know there are no non-zeroes
 	#pragma omp parallel for num_threads(NUM_THREADS) private(j) shared(maxes, maxIndexes) schedule(static)
 	for(j = 0; j < NUM_THREADS; j++)
 	{
@@ -191,6 +193,7 @@ void handleRowSwap(unsigned int i)
 		maxIndexes[j] = 0;
 	}
 
+	//find the maximum value of the column in parallel. Each thread stores the max that it finds
 	#pragma omp parallel num_threads(NUM_THREADS) private(j, colJ) shared(maxIndexes, maxes, ROWS, U, i)
 	{
 		unsigned long thread = omp_get_thread_num();
@@ -209,6 +212,7 @@ void handleRowSwap(unsigned int i)
 		}
 	}
 
+	//find the max of the values in the array from the parallel part
 	for(j = i; j < NUM_THREADS; j++)
 	{
 		if(abs(max) < abs(maxes[j]))
@@ -218,8 +222,12 @@ void handleRowSwap(unsigned int i)
 		}
 	}
 
+	free(maxes);
+	free(maxIndexes);
+
 	if(maxIndex != i)
 	{
+		//do the actually row swap of U, P, and L
 		#pragma omp parallel for num_threads(NUM_THREADS) private(j, temp, colJ) shared(i, maxIndex, L) schedule(static)
 		for(j = 0; j < ROWS; j++)
 		{
